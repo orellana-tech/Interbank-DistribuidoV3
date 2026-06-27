@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+// Paquete Java donde se generarán las clases
+option java_package = "com.interbank.auth.grpc";
+option java_outer_classname = "AuthProto";
+option java_multiple_files = true;
+
+package auth;
+
+// -------------------------------------------------------
+// Servicio de Autenticación
+// Valida si un token es válido y retorna el userId
+// -------------------------------------------------------
+service AuthService {
+  rpc ValidateToken (TokenRequest) returns (ValidateResponse);
+}
+
+// Mensaje de entrada: recibe el token a validar
+message TokenRequest {
+  string token = 1;
+}
+
+// Mensaje de salida: devuelve si es válido y el userId
+message ValidateResponse {
+  bool is_valid = 1;
+  string user_id = 2;
+}
