@@ -1,0 +1,15 @@
+/home/interbank/Interbank-DistribuidoV3/transferencia-service/target/generated-sources/protobuf/java/com/interbank/pagos/PagosResponse.java
+/home/interbank/Interbank-DistribuidoV3/transferencia-service/src/main/java/com/interbank/transferencias/controller/TransferenciaController.java
+/home/interbank/Interbank-DistribuidoV3/transferencia-service/target/generated-sources/protobuf/java/com/interbank/auth/AuthRequest.java
+/home/interbank/Interbank-DistribuidoV3/transferencia-service/target/generated-sources/protobuf/java/com/interbank/pagos/Pagos.java
+/home/interbank/Interbank-DistribuidoV3/transferencia-service/target/generated-sources/protobuf/grpc-java/com/interbank/auth/AuthServiceGrpc.java
+/home/interbank/Interbank-DistribuidoV3/transferencia-service/src/main/java/com/interbank/transferencias/service/TransferenciaOrquestadorService.java
+/home/interbank/Interbank-DistribuidoV3/transferencia-service/src/main/java/com/interbank/transferencias/TransferenciasApplication.java
+/home/interbank/Interbank-DistribuidoV3/transferencia-service/target/generated-sources/protobuf/grpc-java/com/interbank/pagos/PagosServiceGrpc.java
+/home/interbank/Interbank-DistribuidoV3/transferencia-service/target/generated-sources/protobuf/java/com/interbank/pagos/PagosRequest.java
+/home/interbank/Interbank-DistribuidoV3/transferencia-service/target/generated-sources/protobuf/java/com/interbank/auth/AuthResponse.java
+/home/interbank/Interbank-DistribuidoV3/transferencia-service/target/generated-sources/protobuf/java/com/interbank/auth/AuthResponseOrBuilder.java
+/home/interbank/Interbank-DistribuidoV3/transferencia-service/target/generated-sources/protobuf/java/com/interbank/pagos/PagosResponseOrBuilder.java
+/home/interbank/Interbank-DistribuidoV3/transferencia-service/target/generated-sources/protobuf/java/com/interbank/pagos/PagosRequestOrBuilder.java
+/home/interbank/Interbank-DistribuidoV3/transferencia-service/target/generated-sources/protobuf/java/com/interbank/auth/AuthRequestOrBuilder.java
+/home/interbank/Interbank-DistribuidoV3/transferencia-service/target/generated-sources/protobuf/java/com/interbank/auth/Auth.java

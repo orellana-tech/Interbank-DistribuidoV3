@@ -1,0 +1,66 @@
+services:
+  # 1. Base de Datos Compartida
+  db:
+    image: postgres:16
+    container_name: interbank-db-local
+    environment:
+      POSTGRES_USER: equipo_dev
+      POSTGRES_PASSWORD: secreta_dev
+      POSTGRES_DB: interbank_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - interbank-red
+
+  # 2. Servicio de Auth (Dev 1)
+  auth-service:
+    build: 
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: interbank-auth
+    ports:
+      - "5001:5001"
+      - "9090:9090"
+    networks:
+      - interbank-red
+
+  # 3. Tu Servicio de Pagos
+  pagos-service:
+    build: 
+      context: ./pagos-service
+      dockerfile: Dockerfile
+    container_name: interbank-pagos
+    ports:
+      - "5002:5002"
+      - "9091:9091"
+    depends_on:
+      - db
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/interbank_dev
+      - GRPC_CLIENT_AUTH_SERVICE_ADDRESS=static://auth-service:9090
+    networks:
+      - interbank-red
+
+  # 4. Servicio de Transferencias (Dev 3)
+  transferencia-service:
+    build: 
+      context: ./transferencia-service
+      dockerfile: Dockerfile
+    container_name: interbank-transferencias
+    ports:
+      - "5003:5003"
+      - "9092:9092"
+    environment:
+      - GRPC_CLIENT_AUTH_SERVICE_ADDRESS=static://auth-service:9090
+      - GRPC_CLIENT_PAGOS_SERVICE_ADDRESS=static://pagos-service:9091
+    networks:
+      - interbank-red
+
+networks:
+  interbank-red:
+    driver: bridge
+
+volumes:
+  postgres_data:

@@ -1,9 +1,14 @@
-FROM python:3.11
+# Usamos la imagen oficial y ligera de Java 21
+FROM eclipse-temurin:21-jre-alpine
 
+# Carpeta de trabajo dentro del contenedor
 WORKDIR /app
 
-COPY . .
+# Copiamos el ejecutable compilado por Maven
+COPY target/pagos-service-0.0.1-SNAPSHOT.jar app.jar
 
-RUN pip install -r requirements.txt
+# Exponemos el puerto REST y el puerto gRPC
+EXPOSE 5002 9091
 
-CMD ["python", "app.py"]
+# Comando para encender Spring Boot
+ENTRYPOINT ["java", "-jar", "app.jar"]

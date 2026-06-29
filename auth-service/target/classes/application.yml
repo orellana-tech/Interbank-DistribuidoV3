@@ -1,0 +1,15 @@
+server:
+  port: 5001  # Puerto HTTP (Tomcat/Spring)
+
+grpc:
+  server:
+    port: 9090  # Puerto gRPC (Netty)
+
+spring:
+  application:
+    name: auth-service
+
+logging:
+  level:
+    com.interbank.auth: DEBUG
+    net.devh.boot.grpc: INFO
