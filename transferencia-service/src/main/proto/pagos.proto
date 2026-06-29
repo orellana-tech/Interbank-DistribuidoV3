@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package pagos;
+
+option java_package = "com.interbank.pagos";
+option java_multiple_files = true;
+
+service PagosService {
+    rpc procesarMovimiento (PagosRequest) returns (PagosResponse);
+}
+
+message PagosRequest {
+    double monto = 1;
+    string cuenta_destino = 2;
+}
+
+message PagosResponse {
+    bool exito = 1;
+    string mensaje_confirmacion = 2;
+}

@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package auth;
+
+option java_package = "com.interbank.auth";
+option java_multiple_files = true;
+
+service AuthService {
+    rpc validarToken (AuthRequest) returns (AuthResponse);
+}
+
+message AuthRequest {
+    string token = 1;
+}
+
+message AuthResponse {
+    bool es_valido = 1;
+    string mensaje = 2;
+}

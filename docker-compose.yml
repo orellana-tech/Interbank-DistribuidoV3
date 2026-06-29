@@ -1,17 +1,26 @@
 services:
 
-  auth:
+  auth-service:
     build: ./auth-service
     ports:
       - "5001:5001"
-      - "9090:9090"
+      # Si exponen gRPC, aquí debería ir también el puerto 9090
 
-  pagos:
+  pagos-service:
     build: ./pagos-service
     ports:
       - "5002:5002"
+      # Si exponen gRPC, aquí debería ir también el puerto 9091
 
-  usuarios:
+  usuarios-service:
     build: ./usuarios-service
     ports:
-      - "5003:5003"
+      - "5004:5003" # El 5004 en tu PC se conecta al 5003 del contenedor
+
+  transferencia-service:
+    build: 
+      context: ./transferencia-service
+      dockerfile: Dockerfile
+    ports:
+      - "5003:5003" 
+      - "9092:9092"

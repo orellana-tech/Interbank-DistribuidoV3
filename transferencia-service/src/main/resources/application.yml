@@ -1,0 +1,13 @@
+server:
+  port: 5003
+
+grpc:
+  server:
+    port: 9092
+  client:
+    auth-service:
+      address: static://auth-service:9090
+      negotiation-type: plaintext
+    pagos-service:
+      address: static://pagos-service:9091
+      negotiation-type: plaintext
