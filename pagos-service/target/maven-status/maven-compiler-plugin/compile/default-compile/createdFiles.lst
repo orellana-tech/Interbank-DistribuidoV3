@@ -15,6 +15,7 @@ com/interbank/grpc/PagosServiceGrpc$AsyncService.class
 com/interbank/grpc/AuthServiceGrpc$AuthServiceImplBase.class
 com/interbank/grpc/AuthServiceGrpc$AuthServiceMethodDescriptorSupplier.class
 com/interbank/auth/grpc/ValidateResponse.class
+com/interbank/pagos/security/JwtUtil.class
 com/interbank/grpc/PagosServiceGrpc$MethodHandlers.class
 com/interbank/grpc/PaymentRequest$Builder.class
 com/interbank/grpc/AuthServiceGrpc$AuthServiceStub.class
@@ -27,15 +28,18 @@ com/interbank/auth/grpc/AuthServiceGrpc$AuthServiceFileDescriptorSupplier.class
 com/interbank/grpc/PaymentRequestOrBuilder.class
 com/interbank/grpc/PaymentRequest$1.class
 com/interbank/grpc/AuthResponse$Builder.class
+com/interbank/pagos/security/JwtInterceptor.class
 com/interbank/grpc/TokenRequest$1.class
 com/interbank/auth/grpc/AuthServiceGrpc$AuthServiceFutureStub.class
 com/interbank/grpc/PagosServiceGrpc.class
+com/interbank/pagos/controller/TestKafkaController.class
 com/interbank/grpc/PagosServiceGrpc$3.class
 com/interbank/grpc/AuthServiceGrpc$2.class
 com/interbank/auth/grpc/AuthServiceGrpc$AuthServiceImplBase.class
 com/interbank/grpc/PagosServiceGrpc$PagosServiceBlockingStub.class
 com/interbank/pagos/service/PagosServiceImpl.class
 com/interbank/grpc/PagosServiceGrpc$1.class
+com/interbank/pagos/config/WebConfig.class
 com/interbank/grpc/TokenRequestOrBuilder.class
 com/interbank/grpc/AuthServiceGrpc.class
 com/interbank/auth/grpc/AuthServiceGrpc$AuthServiceBaseDescriptorSupplier.class
@@ -66,6 +70,7 @@ com/interbank/pagos/PagosApplication.class
 com/interbank/auth/grpc/AuthServiceGrpc$2.class
 com/interbank/grpc/AuthServiceGrpc$AsyncService.class
 com/interbank/grpc/PaymentResponseOrBuilder.class
+com/interbank/pagos/kafka/PagosProducer.class
 com/interbank/pagos/entity/Pago.class
 com/interbank/auth/grpc/AuthServiceGrpc$AsyncService.class
 com/interbank/grpc/PagosServiceGrpc$PagosServiceFutureStub.class

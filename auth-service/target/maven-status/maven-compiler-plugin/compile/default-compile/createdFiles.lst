@@ -2,6 +2,7 @@ com/interbank/auth/AuthController.class
 com/interbank/auth/grpc/AuthServiceGrpc$1.class
 com/interbank/auth/grpc/AuthProto.class
 com/interbank/auth/grpc/ValidateResponse$Builder.class
+com/interbank/auth/security/JwtUtil.class
 com/interbank/auth/grpc/AuthServiceGrpc$AuthServiceBlockingStub.class
 com/interbank/grpc/AuthServiceGrpc$AuthServiceFutureStub.class
 com/interbank/auth/grpc/TokenRequest.class
@@ -35,6 +36,7 @@ com/interbank/grpc/PagosServiceGrpc$3.class
 com/interbank/grpc/AuthServiceGrpc$2.class
 com/interbank/auth/grpc/AuthServiceGrpc$AuthServiceImplBase.class
 com/interbank/grpc/PagosServiceGrpc$PagosServiceBlockingStub.class
+com/interbank/auth/dto/LoginRequest.class
 com/interbank/grpc/PagosServiceGrpc$1.class
 com/interbank/grpc/TokenRequestOrBuilder.class
 com/interbank/grpc/AuthServiceGrpc.class
@@ -63,6 +65,7 @@ com/interbank/grpc/PagosServiceGrpc$PagosServiceImplBase.class
 com/interbank/grpc/PagosServiceGrpc$PagosServiceStub.class
 com/interbank/auth/grpc/AuthServiceGrpc$2.class
 com/interbank/grpc/AuthServiceGrpc$AsyncService.class
+com/interbank/auth/dto/LoginResponse.class
 com/interbank/grpc/PaymentResponseOrBuilder.class
 com/interbank/auth/grpc/AuthServiceGrpc$AsyncService.class
 com/interbank/grpc/PagosServiceGrpc$PagosServiceFutureStub.class

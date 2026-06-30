@@ -4,6 +4,7 @@
 /home/interbank/Interbank-DistribuidoV3/auth-service/target/generated-sources/protobuf/java/com/interbank/auth/grpc/TokenRequestOrBuilder.java
 /home/interbank/Interbank-DistribuidoV3/auth-service/src/main/java/com/interbank/auth/AuthController.java
 /home/interbank/Interbank-DistribuidoV3/auth-service/target/generated-sources/protobuf/java/com/interbank/auth/grpc/ValidateResponseOrBuilder.java
+/home/interbank/Interbank-DistribuidoV3/auth-service/src/main/java/com/interbank/auth/dto/LoginRequest.java
 /home/interbank/Interbank-DistribuidoV3/auth-service/target/generated-sources/protobuf/java/com/interbank/auth/grpc/AuthProto.java
 /home/interbank/Interbank-DistribuidoV3/auth-service/target/generated-sources/protobuf/java/com/interbank/grpc/AuthResponse.java
 /home/interbank/Interbank-DistribuidoV3/auth-service/target/generated-sources/protobuf/java/com/interbank/grpc/AuthResponseOrBuilder.java
@@ -15,6 +16,8 @@
 /home/interbank/Interbank-DistribuidoV3/auth-service/target/generated-sources/protobuf/java/com/interbank/grpc/PaymentResponse.java
 /home/interbank/Interbank-DistribuidoV3/auth-service/target/generated-sources/protobuf/grpc-java/com/interbank/auth/grpc/AuthServiceGrpc.java
 /home/interbank/Interbank-DistribuidoV3/auth-service/target/generated-sources/protobuf/grpc-java/com/interbank/grpc/AuthServiceGrpc.java
+/home/interbank/Interbank-DistribuidoV3/auth-service/src/main/java/com/interbank/auth/security/JwtUtil.java
 /home/interbank/Interbank-DistribuidoV3/auth-service/target/generated-sources/protobuf/java/com/interbank/grpc/PaymentRequest.java
 /home/interbank/Interbank-DistribuidoV3/auth-service/target/generated-sources/protobuf/grpc-java/com/interbank/grpc/PagosServiceGrpc.java
+/home/interbank/Interbank-DistribuidoV3/auth-service/src/main/java/com/interbank/auth/dto/LoginResponse.java
 /home/interbank/Interbank-DistribuidoV3/auth-service/target/generated-sources/protobuf/java/com/interbank/grpc/PaymentResponseOrBuilder.java

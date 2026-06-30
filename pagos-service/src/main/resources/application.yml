@@ -1,0 +1,10 @@
+
+jwt:
+  secret: SW50ZXJiYW5rLVNlY3JldC1LZXktMjAyNi1NaWNyb3NlcnZpY2lvcy1BcmNoaXRlY3R1cmE=
+
+spring:
+  kafka:
+    bootstrap-servers: kafka:29092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer

@@ -75,7 +75,34 @@ services:
       - pagos-service
       - transferencia-service
       - usuarios-service
-
+  # 7. Zookeeper (Manager de Kafka)
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.4
+    container_name: interbank-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - interbank-red
+  # 8. Apache Kafka (Broker de Mensajes)
+  kafka:
+    image: confluentinc/cp-kafka:7.4.4
+    container_name: interbank-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9093:9093"  # <-- CAMBIO AQUÍ: Ahora mapeamos al 9093
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      # <-- CAMBIO AQUÍ: Anunciamos Kafka en el puerto 9093 para localhost
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9093,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    networks:
+      - interbank-red
 networks:
   interbank-red:
     driver: bridge
