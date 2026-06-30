@@ -9,6 +9,13 @@ spring:
   application:
     name: auth-service
 
+# ─────────────────────────────────────────
+# Llave maestra JWT compartida con todos
+# los microservicios del sistema
+# ─────────────────────────────────────────
+jwt:
+  secret: SW50ZXJiYW5rLVNlY3JldC1LZXktMjAyNi1NaWNyb3NlcnZpY2lvcy1BcmNoaXRlY3R1cmE=
+
 logging:
   level:
     com.interbank.auth: DEBUG
