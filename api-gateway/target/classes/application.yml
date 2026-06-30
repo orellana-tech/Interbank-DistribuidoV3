@@ -1,0 +1,26 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      routes:
+        # Si la URL incluye /ping-auth, mándalo a Pagos (que es tu orquestador actual)
+        - id: route-pagos
+          uri: http://interbank-pagos:5002
+          predicates:
+            - Path=/ping-auth/**, /pagos/**
+            
+        # Si la URL empieza con /transferencias, mándalo al contenedor de Dev 3
+        - id: route-transferencias
+          uri: http://interbank-transferencias:5003
+          predicates:
+            - Path=/transferencias/**
+            
+        # Si la URL empieza con /usuarios, mándalo al contenedor Python
+        - id: route-usuarios
+          uri: http://interbank-usuarios:5003
+          predicates:
+            - Path=/usuarios/**

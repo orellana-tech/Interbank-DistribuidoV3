@@ -63,6 +63,19 @@ services:
     networks:
       - interbank-red
 
+  # 6. Api_Gateway
+  api-gateway:
+    build: ./api-gateway
+    container_name: interbank-gateway
+    ports:
+      - "8081:8080"
+    networks:
+      - interbank-red
+    depends_on:
+      - pagos-service
+      - transferencia-service
+      - usuarios-service
+
 networks:
   interbank-red:
     driver: bridge
