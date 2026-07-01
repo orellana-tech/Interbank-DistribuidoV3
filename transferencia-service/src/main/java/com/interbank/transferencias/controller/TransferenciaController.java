@@ -20,7 +20,7 @@ public class TransferenciaController {
             @RequestBody TransferenciaPayload payload) {
         
         try {
-            // Limpiamos el prefijo "Bearer " si el cliente lo envía en la cabecera
+            // Limpiamos el prefijo "Bearer " si el cliente lo envía en la cabeceraz
             String tokenLimpio = token.replace("Bearer ", "");
             
             String resultado = orquestadorService.ejecutarTransferencia(

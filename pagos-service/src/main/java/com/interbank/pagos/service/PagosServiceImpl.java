@@ -24,7 +24,8 @@ public class PagosServiceImpl extends PagosServiceGrpc.PagosServiceImplBase {
         System.out.println("Usuario: " + request.getUserId() + " | Monto: $" + request.getAmount());
         
         // 1. Simulación (Mock) de Dev 1: Fingimos que validamos el token localmente
-        boolean tokenValido = request.getToken().equals("12345");
+        boolean tokenValido = true;
+        
 
         if (!tokenValido) {
             System.out.println("❌ ERROR: Token inválido simulado.");

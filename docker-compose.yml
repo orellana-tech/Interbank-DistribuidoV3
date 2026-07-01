@@ -55,13 +55,13 @@ services:
       - interbank-red
 
   # 5. Usuarios Service (Python)
-  usuarios-service:
-    build: ./usuarios-service
-    container_name: interbank-usuarios
-    ports:
-      - "5004:5003"
-    networks:
-      - interbank-red
+  #usuarios-service:
+   # build: ./usuarios-service
+    #container_name: interbank-usuarios
+    #ports:
+     # - "5004:5003"
+    #networks:
+     # - interbank-red
 
   # 6. Api_Gateway
   api-gateway:
@@ -74,7 +74,7 @@ services:
     depends_on:
       - pagos-service
       - transferencia-service
-      - usuarios-service
+     # - usuarios-service
   # 7. Zookeeper (Manager de Kafka)
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.4
