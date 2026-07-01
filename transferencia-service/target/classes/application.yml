@@ -14,3 +14,11 @@ grpc:
     pagos-service:
       address: static://pagos-service:9091
       negotiation-type: plaintext
+management:
+  endpoints:
+    web:
+      exposure:
+        include: prometheus,health,info
+  endpoint:
+    prometheus:
+      enabled: true

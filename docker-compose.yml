@@ -1,7 +1,6 @@
 version: '3.8'
-
 services:
-  # 1. Tu Base de Datos Compartida
+  # 1. Base de Datos
   db:
     image: postgres:16
     container_name: interbank-db-local
@@ -16,7 +15,7 @@ services:
     networks:
       - interbank-red
 
-  # 2. Auth Service (Dev 1)
+  # 2. Auth Service
   auth-service:
     build: ./auth-service
     container_name: interbank-auth
@@ -26,7 +25,7 @@ services:
     networks:
       - interbank-red
 
-  # 3. Pagos Service (Tú)
+  # 3. Pagos Service
   pagos-service:
     build: ./pagos-service
     container_name: interbank-pagos
@@ -41,7 +40,7 @@ services:
     networks:
       - interbank-red
 
-  # 4. Transferencias Service (Dev 3)
+  # 4. Transferencias Service
   transferencia-service:
     build: ./transferencia-service
     container_name: interbank-transferencias
@@ -54,16 +53,7 @@ services:
     networks:
       - interbank-red
 
-  # 5. Usuarios Service (Python)
-  #usuarios-service:
-   # build: ./usuarios-service
-    #container_name: interbank-usuarios
-    #ports:
-     # - "5004:5003"
-    #networks:
-     # - interbank-red
-
-  # 6. Api_Gateway
+  # 5. Api Gateway
   api-gateway:
     build: ./api-gateway
     container_name: interbank-gateway
@@ -74,8 +64,8 @@ services:
     depends_on:
       - pagos-service
       - transferencia-service
-     # - usuarios-service
-  # 7. Zookeeper (Manager de Kafka)
+
+  # 6. Zookeeper
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.4
     container_name: interbank-zookeeper
@@ -84,28 +74,62 @@ services:
       ZOOKEEPER_TICK_TIME: 2000
     networks:
       - interbank-red
-  # 8. Apache Kafka (Broker de Mensajes)
+
+  # 7. Apache Kafka
   kafka:
     image: confluentinc/cp-kafka:7.4.4
     container_name: interbank-kafka
     depends_on:
       - zookeeper
     ports:
-      - "9093:9093"  # <-- CAMBIO AQUÍ: Ahora mapeamos al 9093
+      - "9093:9093"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
-      # <-- CAMBIO AQUÍ: Anunciamos Kafka en el puerto 9093 para localhost
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9093,PLAINTEXT_INTERNAL://kafka:29092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
     networks:
       - interbank-red
+
+  # 8. Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: interbank-prometheus
+    ports:
+      - "9095:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - interbank-red
+    depends_on:
+      - auth-service
+      - pagos-service
+      - transferencia-service
+      - api-gateway
+
+  # 9. Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: interbank-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - interbank-red
+    depends_on:
+      - prometheus
+
 networks:
   interbank-red:
     driver: bridge
 
 volumes:
   postgres_data:
+  grafana_data:

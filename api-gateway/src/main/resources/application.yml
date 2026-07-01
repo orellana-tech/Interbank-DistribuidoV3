@@ -24,3 +24,12 @@ spring:
           uri: http://interbank-usuarios:5003
           predicates:
             - Path=/usuarios/**
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: prometheus,health,info
+  endpoint:
+    prometheus:
+      enabled: true
