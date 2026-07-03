@@ -1,0 +1,417 @@
+# ═══════════════════════════════════════════════════════════════
+#        MANUAL COMPLETO — INTERBANK-DISTRIBUIDOV3 (KUBERNETES)
+# ═══════════════════════════════════════════════════════════════
+#
+# Sistema bancario distribuido con microservicios, gRPC, Kafka,
+# Kubernetes (K3s), monitoreo (Prometheus + Grafana), auto-escalado
+# (HPA) y cache distribuido (Redis con idempotencia y token cache).
+#
+# ═══════════════════════════════════════════════════════════════
+
+```bash
+# ───────────────────────────────────────────────────────────────
+# ESCENARIO A: COMPILACIÓN TOTAL Y DESPLIEGUE COMPLETO
+# (Primera vez, o tras cambios en varios servicios)
+# ───────────────────────────────────────────────────────────────
+
+# 1. Ir al directorio del proyecto
+cd ~/Interbank-DistribuidoV3
+
+# 2. Compilar los 4 servicios en orden
+mvn clean install -f auth-service/pom.xml -DskipTests
+mvn clean install -f pagos-service/pom.xml -DskipTests
+mvn clean install -f transferencia-service/pom.xml -DskipTests
+mvn clean install -f api-gateway/pom.xml -DskipTests
+
+# 3. Reconstruir las imágenes Docker de los microservicios
+docker build -t interbank-distribuidov3-auth-service:latest ./auth-service
+docker build -t interbank-distribuidov3-pagos-service:latest ./pagos-service
+docker build -t interbank-distribuidov3-transferencia-service:latest ./transferencia-service
+
+# 4. Importar las imágenes a K3s (containerd de Kubernetes)
+docker save interbank-distribuidov3-auth-service:latest | sudo k3s ctr images import -
+docker save interbank-distribuidov3-pagos-service:latest | sudo k3s ctr images import -
+docker save interbank-distribuidov3-transferencia-service:latest | sudo k3s ctr images import -
+
+# 5. Reiniciar los pods de aplicación para tomar las nuevas imágenes
+kubectl rollout restart deployment/auth-service -n interbank
+kubectl rollout restart deployment/pagos-service -n interbank
+kubectl rollout restart deployment/transferencia-service -n interbank
+
+# 6. Esperar a que arranquen (Java tarda ~2 min por servicio)
+sleep 180
+
+# 7. Verificar que todos los pods están Running
+kubectl get pods -n interbank
+
+
+# ───────────────────────────────────────────────────────────────
+# ESCENARIO B: ARRANQUE NORMAL (al encender la VM, sin cambios)
+# ───────────────────────────────────────────────────────────────
+# K3s arranca automáticamente todos los pods al encender la VM.
+# Solo hay que verificar y esperar a que estén listos.
+
+# 1. Verificar el estado de los pods
+kubectl get pods -n interbank
+
+# 2. Si alguno no está 1/1, esperar ~2 minutos
+sleep 120
+kubectl get pods -n interbank
+
+
+# ───────────────────────────────────────────────────────────────
+# ESCENARIO C: CAMBIOS EN UN SOLO SERVICIO (recompilar uno)
+# Reemplaza "pagos-service" por el servicio que modificaste
+# ───────────────────────────────────────────────────────────────
+
+cd ~/Interbank-DistribuidoV3
+
+# 1. Compilar el servicio
+mvn clean install -f pagos-service/pom.xml -DskipTests
+
+# 2. Reconstruir la imagen Docker
+docker build -t interbank-distribuidov3-pagos-service:latest ./pagos-service
+
+# 3. Importar la nueva imagen a K3s
+docker save interbank-distribuidov3-pagos-service:latest | sudo k3s ctr images import -
+
+# 4. Reiniciar el pod
+kubectl rollout restart deployment/pagos-service -n interbank
+
+# 5. Esperar y verificar
+sleep 150
+kubectl get pods -n interbank
+
+
+# ───────────────────────────────────────────────────────────────
+# ESCENARIO D: PRUEBAS FUNCIONALES (validar que todo responde)
+# ───────────────────────────────────────────────────────────────
+
+# 1. Generar token JWT
+TOKEN=$(curl -s -X POST http://localhost/auth/login \
+     -H "Content-Type: application/json" \
+     -d '{"username": "admin", "password": "admin123"}' \
+     | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+echo "Token: $TOKEN"
+
+# 2. Probar pagos (usa gRPC a auth + PostgreSQL + Kafka)
+curl -i -X POST http://localhost/pagos/procesar \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"amount": 100.50, "cuentaDestino": "CUENTA-12345"}'
+
+# 3. Probar transferencias (usa gRPC a auth + pagos + Kafka)
+curl -i -X POST http://localhost/api/transferir \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"monto": 500.0, "cuentaDestino": "CTA-999"}'
+
+# 4. Probar ping-auth (validación gRPC pagos → auth)
+curl -i -H "Authorization: Bearer $TOKEN" \
+     "http://localhost/ping-auth?token=admin"
+
+
+# ───────────────────────────────────────────────────────────────
+# ESCENARIO E: MEDIR TIEMPOS DE RESPUESTA
+# ───────────────────────────────────────────────────────────────
+
+TOKEN=$(curl -s -X POST http://localhost/auth/login \
+     -H "Content-Type: application/json" \
+     -d '{"username": "admin", "password": "admin123"}' \
+     | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+echo "─── LOGIN ───"
+time curl -s -X POST http://localhost/auth/login \
+     -H "Content-Type: application/json" \
+     -d '{"username": "admin", "password": "admin123"}' > /dev/null
+
+echo "─── PAGOS ───"
+time curl -s -X POST http://localhost/pagos/procesar \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"amount": 100.50, "cuentaDestino": "CUENTA-12345"}' > /dev/null
+
+echo "─── TRANSFERENCIAS ───"
+time curl -s -X POST http://localhost/api/transferir \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"monto": 500.0, "cuentaDestino": "CTA-999"}' > /dev/null
+
+
+# ───────────────────────────────────────────────────────────────
+# ESCENARIO F: PRUEBA DE ESTRÉS
+# ───────────────────────────────────────────────────────────────
+# Editar el script antes con valores seguros.
+# Con 6GB RAM / 3 CPUs: ITERACIONES=500, ESPERA=0.3 es seguro.
+# Evita valores extremos (10000 a 0.1s) que saturan la VM.
+
+nano ~/Interbank-DistribuidoV3/stress-test.sh
+~/Interbank-DistribuidoV3/stress-test.sh
+
+
+# ───────────────────────────────────────────────────────────────
+# ESCENARIO G: VALIDAR KAFKA (eventos de pagos y transferencias)
+# ───────────────────────────────────────────────────────────────
+
+# Generar token y hacer una transferencia
+TOKEN=$(curl -s -X POST http://localhost/auth/login \
+     -H "Content-Type: application/json" \
+     -d '{"username": "admin", "password": "admin123"}' \
+     | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+curl -s -X POST http://localhost/api/transferir \
+     -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+     -d '{"monto": 500.0, "cuentaDestino": "CTA-999"}' > /dev/null
+
+# Ver el evento Kafka en los logs de transferencias
+kubectl logs -n interbank deployment/transferencia-service --tail 10 | grep -i "kafka\|evento"
+
+# Ver el evento Kafka en los logs de pagos
+kubectl logs -n interbank deployment/pagos-service --tail 10 | grep -i "kafka\|evento"
+
+
+# ───────────────────────────────────────────────────────────────
+# ESCENARIO H: HPA — AUTO-ESCALADO DE PODS  [NUEVO]
+# ───────────────────────────────────────────────────────────────
+# El HPA escala automáticamente los servicios stateless según el CPU:
+#   auth-service:          1-5 réplicas (umbral 50% CPU)
+#   pagos-service:         1-4 réplicas (umbral 60% CPU)
+#   transferencia-service: 1-4 réplicas (umbral 60% CPU)
+# Requiere metrics-server (ya incluido en K3s).
+
+# 1. Ver el estado de los HPA (CPU actual vs umbral)
+kubectl get hpa -n interbank
+
+# 2. Aplicar los HPA (si no están creados)
+kubectl apply -f ~/Interbank-DistribuidoV3/k8s/hpa-auth.yaml
+kubectl apply -f ~/Interbank-DistribuidoV3/k8s/hpa-all.yaml
+
+# 3. DEMOSTRAR EL ESCALADO EN VIVO
+#    Terminal 1 — monitorear en tiempo real:
+watch -n 2 'kubectl get hpa -n interbank; echo "───"; kubectl get pods -n interbank | grep -E "auth|pagos|transferencia"'
+
+#    Terminal 2 — generar carga sobre los 3 servicios:
+TOKEN=$(curl -s -X POST http://localhost/auth/login \
+     -H "Content-Type: application/json" \
+     -d '{"username": "admin", "password": "admin123"}' \
+     | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+for i in $(seq 1 3000); do
+  curl -s -X POST http://localhost/auth/login \
+       -H "Content-Type: application/json" \
+       -d '{"username": "admin", "password": "admin123"}' > /dev/null &
+  curl -s -X POST http://localhost/pagos/procesar \
+       -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+       -d '{"amount": 100, "cuentaDestino": "TEST"}' > /dev/null &
+  curl -s -X POST http://localhost/api/transferir \
+       -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+       -d '{"monto": 50, "cuentaDestino": "TEST"}' > /dev/null &
+  if [ $((i % 30)) -eq 0 ]; then wait; echo "Ronda $i enviada..."; fi
+done
+
+# 4. Observar: el CPU sube > umbral → REPLICAS aumenta automáticamente.
+#    Al detener la carga (Ctrl+C), tras ~1 min las réplicas bajan solas.
+# NOTA: Servicios con estado (postgres, kafka, zookeeper, prometheus,
+#       grafana) NO tienen HPA por diseño (no son escalables horizontalmente).
+
+
+# ───────────────────────────────────────────────────────────────
+# ESCENARIO I: REDIS — IDEMPOTENCIA Y TOKEN CACHE  [NUEVO]
+# ───────────────────────────────────────────────────────────────
+# Redis está desplegado en el cluster (service: redis:6379).
+# Implementa dos patrones de nivel bancario en pagos-service:
+#   1. IDEMPOTENCIA    → evita pagos duplicados (header Idempotency-Key)
+#   2. TOKEN CACHE     → cachea validación JWT (coherente con HPA)
+# NOTA: La idempotencia es OPCIONAL. Solo se activa si se envía el
+#       header "Idempotency-Key". Sin ese header, funciona como siempre.
+
+# ── VERIFICAR QUE REDIS RESPONDE ──
+kubectl exec -n interbank deployment/redis -- redis-cli ping   # → PONG
+
+# ── PROBAR IDEMPOTENCIA (evita duplicados) ──
+TOKEN=$(curl -s -X POST http://localhost/auth/login \
+     -H "Content-Type: application/json" \
+     -d '{"username": "admin", "password": "admin123"}' \
+     | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+# Primera petición (con clave PAGO-001): se procesa normal
+curl -i -X POST http://localhost/pagos/procesar \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -H "Idempotency-Key: PAGO-001" \
+     -d '{"amount": 100.50, "cuentaDestino": "CUENTA-12345"}'
+
+# Segunda petición (MISMA clave PAGO-001): detecta DUPLICADO desde Redis
+curl -i -X POST http://localhost/pagos/procesar \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -H "Idempotency-Key: PAGO-001" \
+     -d '{"amount": 100.50, "cuentaDestino": "CUENTA-12345"}'
+# → La 2da responde: "[DUPLICADO - respuesta desde cache Redis]..."
+#   con header "X-Idempotency-Replayed: true" y NO reprocesa.
+
+# ── PROBAR TOKEN CACHE (valida JWT una vez, reutiliza) ──
+for i in 1 2 3 4 5; do
+  curl -s -o /dev/null -X POST http://localhost/pagos/procesar \
+       -H "Authorization: Bearer $TOKEN" \
+       -H "Content-Type: application/json" \
+       -H "Idempotency-Key: CACHE-TEST-$i" \
+       -d '{"amount": 100, "cuentaDestino": "TEST"}'
+done
+# Ver los MISS (primera) y HIT (siguientes) en los logs:
+kubectl logs -n interbank deployment/pagos-service --tail 20 | grep -i "TOKEN-CACHE"
+# → 1 línea "MISS - validado y guardado" + varias "HIT - desde Redis"
+
+# ── INSPECCIONAR CLAVES EN REDIS ──
+kubectl exec -n interbank deployment/redis -- redis-cli KEYS "idempotency:*"
+kubectl exec -n interbank deployment/redis -- redis-cli KEYS "token:*"
+kubectl exec -n interbank deployment/redis -- redis-cli GET "idempotency:PAGO-001"
+# TTL de una clave (segundos restantes antes de expirar):
+kubectl exec -n interbank deployment/redis -- redis-cli TTL "idempotency:PAGO-001"
+
+
+# ───────────────────────────────────────────────────────────────
+# ACCESO A LOS DASHBOARDS DE MONITOREO
+# ───────────────────────────────────────────────────────────────
+
+# GRAFANA (acceso directo, ya tiene NodePort)
+# Abrir en navegador: http://localhost:30300
+#   Usuario:    admin
+#   Contraseña: admin123
+#   Dashboard: "Interbank - Dashboard de Microservicios"
+
+# PROMETHEUS (requiere port-forward)
+kubectl port-forward -n interbank service/prometheus 9096:9090 > /dev/null 2>&1 &
+# Abrir en navegador: http://localhost:9096
+#   Status → Targets (ver los 4 servicios + kafka en verde)
+
+# Detener el port-forward de Prometheus
+pkill -f "port-forward.*prometheus"
+
+
+# ───────────────────────────────────────────────────────────────
+# VERIFICACIÓN DEL MONITOREO (targets de Prometheus)
+# ───────────────────────────────────────────────────────────────
+
+kubectl port-forward -n interbank service/prometheus 9096:9090 > /dev/null 2>&1 &
+sleep 5
+curl -s http://localhost:9096/api/v1/targets | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for t in data['data']['activeTargets']:
+    print(t['labels']['job'], '->', t['health'])
+"
+
+
+# ───────────────────────────────────────────────────────────────
+# COMANDOS ÚTILES DE KUBERNETES
+# ───────────────────────────────────────────────────────────────
+
+kubectl get pods -n interbank                            # Ver pods
+kubectl get all -n interbank                             # Ver todos los recursos
+kubectl get services -n interbank                        # Ver servicios
+kubectl get ingress -n interbank                         # Ver el ingress
+kubectl get hpa -n interbank                             # Ver auto-escaladores
+kubectl logs -n interbank deployment/pagos-service       # Ver logs de un servicio
+kubectl logs -n interbank deployment/pagos-service -f    # Logs en tiempo real
+kubectl rollout restart deployment/NOMBRE -n interbank   # Reiniciar un servicio
+kubectl top pods -n interbank                            # Consumo de recursos por pod
+kubectl top nodes                                        # Consumo del nodo
+kubectl exec -n interbank deployment/redis -- redis-cli ping   # Probar Redis
+free -h                                                  # RAM del sistema
+uptime                                                   # Carga del sistema (load average)
+
+
+# ───────────────────────────────────────────────────────────────
+# SUBIR CAMBIOS A GITHUB
+# ───────────────────────────────────────────────────────────────
+
+cd ~/Interbank-DistribuidoV3
+
+# 1. IMPORTANTE: actualizar este README antes de subir, si hubo cambios
+
+# 2. Ver en qué rama estás y qué cambió
+git branch
+git status
+
+# 3. Crear una rama nueva (opcional, para features)
+git checkout -b feature/nombre-descriptivo
+
+# 4. Agregar solo los archivos de código (el .gitignore excluye target/)
+git add .
+
+# 5. Confirmar los cambios
+git commit -m "feat: descripcion del cambio"
+
+# 6. Subir a GitHub (usuario: orellana-tech + Personal Access Token)
+git push origin feature/nombre-descriptivo
+```
+
+# ═══════════════════════════════════════════════════════════════
+# REGLAS IMPORTANTES
+# ═══════════════════════════════════════════════════════════════
+# REGLA 1:  Sin cambios de código → NO uses Maven ni Docker, solo los curl
+# REGLA 2:  Con cambios → mvn install → docker build → k3s import → rollout restart
+# REGLA 3:  Los pods tardan ~2 min en arrancar (Java es lento al inicio)
+# REGLA 4:  Al apagar/encender la VM, K3s levanta los pods automáticamente
+# REGLA 5:  Tras encender la VM, el primer arranque es lento (cold start normal)
+# REGLA 6:  pagos-service y transferencia-service usan Kafka (auth NO)
+# REGLA 7:  Si un pod falla → kubectl logs -n interbank deployment/NOMBRE
+# REGLA 8:  Rutas: /auth (auth), /pagos (pagos), /ping-auth (gRPC), /api/transferir
+# REGLA 9:  Puerto 80 (Traefik Ingress) es la puerta de entrada en Kubernetes
+# REGLA 10: Prometheus NO es accesible por navegador sin port-forward
+# REGLA 11: Grafana persiste dashboards aunque se reinicie (volumen PVC)
+# REGLA 12: Prueba de estrés: máx 500 iteraciones / 0.3s con 6GB RAM
+# REGLA 13: Si Grafana se congela → kubectl rollout restart deployment/grafana
+# REGLA 14: NUNCA subir target/ a GitHub (el .gitignore ya los excluye)
+# REGLA 15: El endpoint /ping-auth requiere token JWT en el header (Bearer)
+# REGLA 16: HPA solo aplica a servicios stateless (auth, pagos, transferencia)  [NUEVO]
+# REGLA 17: La idempotencia es OPCIONAL: se activa solo con header Idempotency-Key  [NUEVO]
+# REGLA 18: El token cache expira solo (5 min); las claves de idempotencia 24h  [NUEVO]
+# REGLA 19: Actualizar este README antes de cada push a GitHub  [NUEVO]
+#
+#
+# ═══════════════════════════════════════════════════════════════
+# PUERTOS Y ACCESOS (RESUMEN RÁPIDO)
+# ═══════════════════════════════════════════════════════════════
+# http://localhost/auth/login          → Login (genera JWT)
+# http://localhost/pagos/procesar       → Procesar pago
+# http://localhost/api/transferir       → Realizar transferencia
+# http://localhost/ping-auth            → Validación gRPC (requiere JWT)
+# http://localhost:30300                → Grafana (admin / admin123)
+# http://localhost:9096                 → Prometheus (con port-forward)
+#
+#
+# ═══════════════════════════════════════════════════════════════
+# ESTADO ACTUAL DE LA ARQUITECTURA
+# ═══════════════════════════════════════════════════════════════
+# auth-service          → JWT + gRPC (puerto 5001 / 9090)
+# pagos-service         → gRPC + Kafka [transacciones-topic] + Redis (5002 / 9091)
+#                         · Idempotencia (evita pagos duplicados)
+#                         · Token cache distribuido (valida JWT una vez)
+# transferencia-service → gRPC + Kafka [transferencias-topic] (5003 / 9092)
+# postgres              → Base de datos (5432)
+# redis                 → Cache distribuido: idempotencia + token cache (6379)
+# kafka-broker + zookeeper → Mensajería asíncrona
+# kafka-exporter        → Métricas de Kafka para Prometheus
+# prometheus            → Recolector de métricas
+# grafana               → Dashboards (con persistencia PVC)
+# traefik (K3s)         → Ingress Controller (puerto 80)
+# HPA                   → Auto-escalado de auth, pagos y transferencia
+#
+#
+# ═══════════════════════════════════════════════════════════════
+# PATRONES DE ARQUITECTURA IMPLEMENTADOS (nivel productivo bancario)
+# ═══════════════════════════════════════════════════════════════
+# · Microservicios desacoplados            (auth, pagos, transferencia)
+# · Comunicación síncrona                  (gRPC entre servicios)
+# · Comunicación asíncrona / eventos       (Kafka: 2 tópicos)
+# · Autenticación centralizada             (JWT HS384)
+# · Orquestación de contenedores           (Kubernetes K3s)
+# · Enrutamiento / Ingress                 (Traefik puerto 80)
+# · Observabilidad                         (Prometheus + Grafana + kafka-exporter)
+# · Eliminación de cold start              (startupProbe + warm-up postStart)
+# · Auto-escalado horizontal               (HPA por CPU)
+# · Idempotencia                           (Redis, evita cargos duplicados)
+# · Cache de sesión / token distribuido    (Redis, coherente con HPA)
+# · Persistencia de dashboards             (PVC en Grafana)
