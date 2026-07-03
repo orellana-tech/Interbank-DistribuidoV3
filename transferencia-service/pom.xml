@@ -64,6 +64,12 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- Kafka -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+
         <!-- Actuator + Prometheus -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

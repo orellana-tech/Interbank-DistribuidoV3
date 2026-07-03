@@ -23,6 +23,13 @@ spec:
                 name: pagos-service
                 port:
                   number: 5002
+          - path: /ping-auth
+            pathType: Prefix
+            backend:
+              service:
+                name: pagos-service
+                port:
+                  number: 5002
           - path: /api/transferir
             pathType: Prefix
             backend:
