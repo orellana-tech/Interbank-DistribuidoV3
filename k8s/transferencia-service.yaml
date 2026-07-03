@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transferencia-service
+  namespace: interbank
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: transferencia-service
+  template:
+    metadata:
+      labels:
+        app: transferencia-service
+    spec:
+      containers:
+        - name: transferencia-service
+          image: interbank-distribuidov3-transferencia-service:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 5003
+            - containerPort: 9092
+          env:
+            - name: GRPC_CLIENT_AUTH_SERVICE_ADDRESS
+              value: static://auth-service:9090
+            - name: GRPC_CLIENT_PAGOS_SERVICE_ADDRESS
+              value: static://pagos-service:9091
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: 5003
+            failureThreshold: 40
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 5003
+            periodSeconds: 20
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    # Esperar a que el servicio local esté vivo
+                    for i in $(seq 1 60); do
+                      if wget -q -O- http://localhost:5003/actuator/health 2>/dev/null; then
+                        echo "[WARM-UP] Servicio local listo"
+                        break
+                      fi
+                      sleep 3
+                    done
+
+                    # Esperar a que pagos-service esté disponible (dependencia gRPC)
+                    for i in $(seq 1 30); do
+                      if wget -q -O- http://pagos-service:5002/actuator/health 2>/dev/null; then
+                        echo "[WARM-UP] Pagos-service disponible"
+                        break
+                      fi
+                      sleep 3
+                    done
+
+                    # Obtener token
+                    TOKEN=$(wget -q -O- --post-data='{"username":"admin","password":"admin123"}' \
+                      --header='Content-Type: application/json' \
+                      http://auth-service:5001/auth/login 2>/dev/null | sed 's/.*"token":"\([^"]*\)".*/\1/')
+
+                    # Precalentar la cadena gRPC completa 5 veces
+                    for j in 1 2 3 4 5; do
+                      wget -q -O- --post-data='{"monto":1,"cuentaDestino":"WARMUP"}' \
+                        --header="Authorization: Bearer $TOKEN" \
+                        --header='Content-Type: application/json' \
+                        http://localhost:5003/api/transferir 2>/dev/null
+                      echo "[WARM-UP] Iteracion $j completada"
+                      sleep 2
+                    done
+                    echo "[WARM-UP] Transferencia precalentada completamente"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: transferencia-service
+  namespace: interbank
+spec:
+  selector:
+    app: transferencia-service
+  ports:
+    - name: http
+      port: 5003
+      targetPort: 5003
+    - name: grpc
+      port: 9092
+      targetPort: 9092

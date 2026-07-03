@@ -1,0 +1,32 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: interbank-ingress
+  namespace: interbank
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /auth
+            pathType: Prefix
+            backend:
+              service:
+                name: auth-service
+                port:
+                  number: 5001
+          - path: /pagos
+            pathType: Prefix
+            backend:
+              service:
+                name: pagos-service
+                port:
+                  number: 5002
+          - path: /api/transferir
+            pathType: Prefix
+            backend:
+              service:
+                name: transferencia-service
+                port:
+                  number: 5003
