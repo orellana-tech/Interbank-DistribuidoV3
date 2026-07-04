@@ -31,6 +31,10 @@ spec:
               value: kafka-broker:9092
             - name: GRPC_CLIENT_AUTH_SERVICE_ADDRESS
               value: static://auth-service:9090
+            - name: SPRING_REDIS_HOST
+              value: redis
+            - name: TZ
+              value: America/Lima
           resources:
             requests:
               memory: "512Mi"

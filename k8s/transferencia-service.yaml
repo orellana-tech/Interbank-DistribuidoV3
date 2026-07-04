@@ -25,6 +25,8 @@ spec:
               value: static://auth-service:9090
             - name: GRPC_CLIENT_PAGOS_SERVICE_ADDRESS
               value: static://pagos-service:9091
+            - name: TZ
+              value: America/Lima
           resources:
             requests:
               memory: "256Mi"
