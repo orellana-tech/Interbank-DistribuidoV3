@@ -1,0 +1,97 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-replica-pvc
+  namespace: interbank
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-replica
+  namespace: interbank
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: postgres-replica
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: postgres-replica
+    spec:
+      initContainers:
+        - name: init-replica
+          image: postgres:16
+          command:
+            - bash
+            - -c
+            - |
+              set -e
+              # Si el directorio ya tiene datos, no volver a copiar
+              if [ -s "/var/lib/postgresql/data/pgdata/PG_VERSION" ]; then
+                echo "La réplica ya está inicializada, omitiendo basebackup."
+                exit 0
+              fi
+              echo "Iniciando copia base desde el primario..."
+              # Limpiar el directorio destino
+              rm -rf /var/lib/postgresql/data/pgdata
+              mkdir -p /var/lib/postgresql/data/pgdata
+              # Copia base completa del primario vía streaming
+              PGPASSWORD=replica_pass pg_basebackup \
+                -h postgres \
+                -p 5432 \
+                -U replicador \
+                -D /var/lib/postgresql/data/pgdata \
+                -Fp -Xs -P -R
+              echo "Copia base completada. Configurando permisos..."
+              chmod 0700 /var/lib/postgresql/data/pgdata
+              echo "Réplica lista para arrancar en modo standby."
+          volumeMounts:
+            - name: replica-storage
+              mountPath: /var/lib/postgresql/data
+      containers:
+        - name: postgres-replica
+          image: postgres:16
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: equipo_dev
+            - name: POSTGRES_PASSWORD
+              value: secreta_dev
+            - name: POSTGRES_DB
+              value: interbank_dev
+            - name: TZ
+              value: America/Lima
+            - name: PGTZ
+              value: America/Lima
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: replica-storage
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: replica-storage
+          persistentVolumeClaim:
+            claimName: postgres-replica-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-replica
+  namespace: interbank
+spec:
+  selector:
+    app: postgres-replica
+  ports:
+    - port: 5432
+      targetPort: 5432

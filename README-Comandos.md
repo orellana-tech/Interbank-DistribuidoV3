@@ -4,7 +4,8 @@
 #
 # Sistema bancario distribuido con microservicios, gRPC, Kafka,
 # Kubernetes (K3s), monitoreo (Prometheus + Grafana), auto-escalado
-# (HPA) y cache distribuido (Redis con idempotencia y token cache).
+# (HPA), cache distribuido (Redis: idempotencia + token cache),
+# PostgreSQL con persistencia (PVC) y réplica (streaming replication).
 #
 # ═══════════════════════════════════════════════════════════════
 
@@ -49,7 +50,6 @@ kubectl get pods -n interbank
 # ESCENARIO B: ARRANQUE NORMAL (al encender la VM, sin cambios)
 # ───────────────────────────────────────────────────────────────
 # K3s arranca automáticamente todos los pods al encender la VM.
-# Solo hay que verificar y esperar a que estén listos.
 
 # 1. Verificar el estado de los pods
 kubectl get pods -n interbank
@@ -153,7 +153,6 @@ nano ~/Interbank-DistribuidoV3/stress-test.sh
 # ESCENARIO G: VALIDAR KAFKA (eventos de pagos y transferencias)
 # ───────────────────────────────────────────────────────────────
 
-# Generar token y hacer una transferencia
 TOKEN=$(curl -s -X POST http://localhost/auth/login \
      -H "Content-Type: application/json" \
      -d '{"username": "admin", "password": "admin123"}' \
@@ -163,21 +162,18 @@ curl -s -X POST http://localhost/api/transferir \
      -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
      -d '{"monto": 500.0, "cuentaDestino": "CTA-999"}' > /dev/null
 
-# Ver el evento Kafka en los logs de transferencias
+# Ver el evento Kafka en los logs
 kubectl logs -n interbank deployment/transferencia-service --tail 10 | grep -i "kafka\|evento"
-
-# Ver el evento Kafka en los logs de pagos
 kubectl logs -n interbank deployment/pagos-service --tail 10 | grep -i "kafka\|evento"
 
 
 # ───────────────────────────────────────────────────────────────
-# ESCENARIO H: HPA — AUTO-ESCALADO DE PODS  [NUEVO]
+# ESCENARIO H: HPA — AUTO-ESCALADO DE PODS
 # ───────────────────────────────────────────────────────────────
 # El HPA escala automáticamente los servicios stateless según el CPU:
 #   auth-service:          1-5 réplicas (umbral 50% CPU)
 #   pagos-service:         1-4 réplicas (umbral 60% CPU)
 #   transferencia-service: 1-4 réplicas (umbral 60% CPU)
-# Requiere metrics-server (ya incluido en K3s).
 
 # 1. Ver el estado de los HPA (CPU actual vs umbral)
 kubectl get hpa -n interbank
@@ -208,20 +204,16 @@ for i in $(seq 1 3000); do
        -d '{"monto": 50, "cuentaDestino": "TEST"}' > /dev/null &
   if [ $((i % 30)) -eq 0 ]; then wait; echo "Ronda $i enviada..."; fi
 done
-
-# 4. Observar: el CPU sube > umbral → REPLICAS aumenta automáticamente.
-#    Al detener la carga (Ctrl+C), tras ~1 min las réplicas bajan solas.
 # NOTA: Servicios con estado (postgres, kafka, zookeeper, prometheus,
-#       grafana) NO tienen HPA por diseño (no son escalables horizontalmente).
+#       grafana) NO tienen HPA por diseño.
 
 
 # ───────────────────────────────────────────────────────────────
-# ESCENARIO I: REDIS — IDEMPOTENCIA Y TOKEN CACHE  [NUEVO]
+# ESCENARIO I: REDIS — IDEMPOTENCIA Y TOKEN CACHE
 # ───────────────────────────────────────────────────────────────
-# Redis está desplegado en el cluster (service: redis:6379).
-# Implementa dos patrones de nivel bancario en pagos-service:
-#   1. IDEMPOTENCIA    → evita pagos duplicados (header Idempotency-Key)
-#   2. TOKEN CACHE     → cachea validación JWT (coherente con HPA)
+# Redis (service: redis:6379) implementa dos patrones bancarios:
+#   1. IDEMPOTENCIA → evita pagos duplicados (header Idempotency-Key)
+#   2. TOKEN CACHE  → cachea validación JWT (coherente con HPA)
 # NOTA: La idempotencia es OPCIONAL. Solo se activa si se envía el
 #       header "Idempotency-Key". Sin ese header, funciona como siempre.
 
@@ -234,40 +226,108 @@ TOKEN=$(curl -s -X POST http://localhost/auth/login \
      -d '{"username": "admin", "password": "admin123"}' \
      | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
 
-# Primera petición (con clave PAGO-001): se procesa normal
+# Primera petición (clave PAGO-001): se procesa normal
 curl -i -X POST http://localhost/pagos/procesar \
-     -H "Authorization: Bearer $TOKEN" \
-     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
      -H "Idempotency-Key: PAGO-001" \
      -d '{"amount": 100.50, "cuentaDestino": "CUENTA-12345"}'
 
-# Segunda petición (MISMA clave PAGO-001): detecta DUPLICADO desde Redis
+# Segunda petición (MISMA clave): DUPLICADO desde Redis, NO reprocesa
 curl -i -X POST http://localhost/pagos/procesar \
-     -H "Authorization: Bearer $TOKEN" \
-     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
      -H "Idempotency-Key: PAGO-001" \
      -d '{"amount": 100.50, "cuentaDestino": "CUENTA-12345"}'
-# → La 2da responde: "[DUPLICADO - respuesta desde cache Redis]..."
-#   con header "X-Idempotency-Replayed: true" y NO reprocesa.
 
 # ── PROBAR TOKEN CACHE (valida JWT una vez, reutiliza) ──
 for i in 1 2 3 4 5; do
   curl -s -o /dev/null -X POST http://localhost/pagos/procesar \
-       -H "Authorization: Bearer $TOKEN" \
-       -H "Content-Type: application/json" \
+       -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
        -H "Idempotency-Key: CACHE-TEST-$i" \
        -d '{"amount": 100, "cuentaDestino": "TEST"}'
 done
-# Ver los MISS (primera) y HIT (siguientes) en los logs:
 kubectl logs -n interbank deployment/pagos-service --tail 20 | grep -i "TOKEN-CACHE"
-# → 1 línea "MISS - validado y guardado" + varias "HIT - desde Redis"
+# → 1 "MISS - validado y guardado" + varias "HIT - desde Redis"
 
 # ── INSPECCIONAR CLAVES EN REDIS ──
 kubectl exec -n interbank deployment/redis -- redis-cli KEYS "idempotency:*"
 kubectl exec -n interbank deployment/redis -- redis-cli KEYS "token:*"
 kubectl exec -n interbank deployment/redis -- redis-cli GET "idempotency:PAGO-001"
-# TTL de una clave (segundos restantes antes de expirar):
 kubectl exec -n interbank deployment/redis -- redis-cli TTL "idempotency:PAGO-001"
+
+
+# ───────────────────────────────────────────────────────────────
+# ESCENARIO J: POSTGRESQL — PERSISTENCIA Y ZONA HORARIA  [NUEVO]
+# ───────────────────────────────────────────────────────────────
+# PostgreSQL tiene volumen persistente (PVC 2Gi): los datos sobreviven
+# a reinicios y apagados de la VM. Zona horaria en America/Lima.
+
+# ── VER LOS REGISTROS GUARDADOS ──
+kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -c "SELECT * FROM pagos ORDER BY id DESC LIMIT 10;"
+
+# ── CONTAR REGISTROS ──
+kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -c "SELECT COUNT(*) FROM pagos;"
+
+# ── VER LA HORA DEL SERVIDOR (debe estar en Lima, UTC-5) ──
+kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -c "SELECT now();"
+
+# ── PROBAR PERSISTENCIA (los datos sobreviven al reinicio) ──
+kubectl rollout restart deployment/postgres -n interbank
+sleep 60
+kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -c "SELECT COUNT(*) FROM pagos;"
+# NOTA: Solo el flujo gRPC (transferencias → pagos) guarda en BD.
+#       El endpoint HTTP /pagos/procesar solo manda a Kafka, NO guarda.
+
+
+# ───────────────────────────────────────────────────────────────
+# ESCENARIO K: POSTGRESQL — RÉPLICA (STREAMING REPLICATION)  [NUEVO]
+# ───────────────────────────────────────────────────────────────
+# Arquitectura de alta disponibilidad:
+#   postgres          → PRIMARIO (recibe escrituras)
+#   postgres-replica  → RÉPLICA  (copia en tiempo real, solo lectura)
+# Si el primario cae, la réplica tiene todos los datos.
+
+# ── VERIFICAR ESTADO DE LA REPLICACIÓN ──
+
+# 1. La réplica está en modo standby (solo lectura) → debe dar 't'
+kubectl exec -n interbank deployment/postgres-replica -- psql -U equipo_dev -d interbank_dev -c "SELECT pg_is_in_recovery();"
+
+# 2. Estado del streaming desde el primario → debe decir 'streaming'
+kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -c "SELECT client_addr, state, sync_state, replay_lag FROM pg_stat_replication;"
+
+# 3. Comparar conteo en ambos (deben coincidir)
+echo -n "Primario: "; kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -t -c "SELECT COUNT(*) FROM pagos;"
+echo -n "Réplica:  "; kubectl exec -n interbank deployment/postgres-replica -- psql -U equipo_dev -d interbank_dev -t -c "SELECT COUNT(*) FROM pagos;"
+
+# ── DEMOSTRAR REPLICACIÓN EN TIEMPO REAL ──
+# Insertar en el primario y ver que aparece solo en la réplica
+TOKEN=$(curl -s -X POST http://localhost/auth/login \
+     -H "Content-Type: application/json" \
+     -d '{"username": "admin", "password": "admin123"}' \
+     | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+curl -s -X POST http://localhost/api/transferir \
+     -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+     -d '{"monto": 9999.0, "cuentaDestino": "PRUEBA-REPLICA"}' > /dev/null
+sleep 3
+kubectl exec -n interbank deployment/postgres-replica -- psql -U equipo_dev -d interbank_dev -c "SELECT * FROM pagos WHERE monto=9999;"
+
+
+# ═══════════════════════════════════════════════════════════════
+# RECREAR LA RÉPLICA DESDE CERO (si hay que reconfigurarla)
+# ═══════════════════════════════════════════════════════════════
+# El primario (postgres:16) YA trae wal_level=replica y
+# max_wal_senders=10 por defecto. Solo hay que:
+
+# PASO 1 — Crear el usuario de replicación en el primario
+kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -c "CREATE USER replicador WITH REPLICATION LOGIN PASSWORD 'replica_pass';"
+
+# PASO 2 — Permitir conexiones de replicación (pg_hba.conf)
+kubectl exec -n interbank deployment/postgres -- bash -c "echo 'host replication replicador 0.0.0.0/0 scram-sha-256' >> /var/lib/postgresql/data/pgdata/pg_hba.conf"
+kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -c "SELECT pg_reload_conf();"
+
+# PASO 3 — Desplegar la réplica (initContainer hace pg_basebackup automático)
+kubectl apply -f ~/Interbank-DistribuidoV3/k8s/postgres-replica.yaml
+sleep 40
+kubectl get pods -n interbank -l app=postgres-replica
 
 
 # ───────────────────────────────────────────────────────────────
@@ -275,18 +335,13 @@ kubectl exec -n interbank deployment/redis -- redis-cli TTL "idempotency:PAGO-00
 # ───────────────────────────────────────────────────────────────
 
 # GRAFANA (acceso directo, ya tiene NodePort)
-# Abrir en navegador: http://localhost:30300
-#   Usuario:    admin
-#   Contraseña: admin123
+# Navegador: http://localhost:30300  (admin / admin123)
 #   Dashboard: "Interbank - Dashboard de Microservicios"
 
 # PROMETHEUS (requiere port-forward)
 kubectl port-forward -n interbank service/prometheus 9096:9090 > /dev/null 2>&1 &
-# Abrir en navegador: http://localhost:9096
-#   Status → Targets (ver los 4 servicios + kafka en verde)
-
-# Detener el port-forward de Prometheus
-pkill -f "port-forward.*prometheus"
+# Navegador: http://localhost:9096  → Status → Targets
+pkill -f "port-forward.*prometheus"   # para detener
 
 
 # ───────────────────────────────────────────────────────────────
@@ -312,14 +367,15 @@ kubectl get all -n interbank                             # Ver todos los recurso
 kubectl get services -n interbank                        # Ver servicios
 kubectl get ingress -n interbank                         # Ver el ingress
 kubectl get hpa -n interbank                             # Ver auto-escaladores
-kubectl logs -n interbank deployment/pagos-service       # Ver logs de un servicio
+kubectl get pvc -n interbank                             # Ver volúmenes persistentes
+kubectl logs -n interbank deployment/pagos-service       # Logs de un servicio
 kubectl logs -n interbank deployment/pagos-service -f    # Logs en tiempo real
 kubectl rollout restart deployment/NOMBRE -n interbank   # Reiniciar un servicio
-kubectl top pods -n interbank                            # Consumo de recursos por pod
+kubectl top pods -n interbank                            # Consumo por pod
 kubectl top nodes                                        # Consumo del nodo
 kubectl exec -n interbank deployment/redis -- redis-cli ping   # Probar Redis
 free -h                                                  # RAM del sistema
-uptime                                                   # Carga del sistema (load average)
+uptime                                                   # Carga del sistema
 
 
 # ───────────────────────────────────────────────────────────────
@@ -329,21 +385,20 @@ uptime                                                   # Carga del sistema (lo
 cd ~/Interbank-DistribuidoV3
 
 # 1. IMPORTANTE: actualizar este README antes de subir, si hubo cambios
-
-# 2. Ver en qué rama estás y qué cambió
+# 2. Ver rama y cambios
 git branch
 git status
 
-# 3. Crear una rama nueva (opcional, para features)
+# 3. Crear rama nueva (opcional)
 git checkout -b feature/nombre-descriptivo
 
-# 4. Agregar solo los archivos de código (el .gitignore excluye target/)
+# 4. Agregar archivos (el .gitignore excluye target/)
 git add .
 
-# 5. Confirmar los cambios
+# 5. Confirmar
 git commit -m "feat: descripcion del cambio"
 
-# 6. Subir a GitHub (usuario: orellana-tech + Personal Access Token)
+# 6. Subir (usuario: orellana-tech + Personal Access Token)
 git push origin feature/nombre-descriptivo
 ```
 
@@ -365,10 +420,14 @@ git push origin feature/nombre-descriptivo
 # REGLA 13: Si Grafana se congela → kubectl rollout restart deployment/grafana
 # REGLA 14: NUNCA subir target/ a GitHub (el .gitignore ya los excluye)
 # REGLA 15: El endpoint /ping-auth requiere token JWT en el header (Bearer)
-# REGLA 16: HPA solo aplica a servicios stateless (auth, pagos, transferencia)  [NUEVO]
-# REGLA 17: La idempotencia es OPCIONAL: se activa solo con header Idempotency-Key  [NUEVO]
-# REGLA 18: El token cache expira solo (5 min); las claves de idempotencia 24h  [NUEVO]
-# REGLA 19: Actualizar este README antes de cada push a GitHub  [NUEVO]
+# REGLA 16: HPA solo aplica a servicios stateless (auth, pagos, transferencia)
+# REGLA 17: La idempotencia es OPCIONAL: se activa solo con header Idempotency-Key
+# REGLA 18: El token cache expira solo (5 min); las claves de idempotencia 24h
+# REGLA 19: Actualizar este README antes de cada push a GitHub
+# REGLA 20: Los datos de PostgreSQL persisten (PVC): NO se borran al reiniciar  [NUEVO]
+# REGLA 21: Solo el flujo gRPC (transferencias) guarda en BD; HTTP /pagos solo Kafka  [NUEVO]
+# REGLA 22: La réplica es SOLO LECTURA: no escribas directamente en ella  [NUEVO]
+# REGLA 23: Fechas en hora de Lima (TZ en postgres, pagos y transferencia)  [NUEVO]
 #
 #
 # ═══════════════════════════════════════════════════════════════
@@ -385,13 +444,14 @@ git push origin feature/nombre-descriptivo
 # ═══════════════════════════════════════════════════════════════
 # ESTADO ACTUAL DE LA ARQUITECTURA
 # ═══════════════════════════════════════════════════════════════
-# auth-service          → JWT + gRPC (puerto 5001 / 9090)
+# auth-service          → JWT + gRPC (5001 / 9090)
 # pagos-service         → gRPC + Kafka [transacciones-topic] + Redis (5002 / 9091)
 #                         · Idempotencia (evita pagos duplicados)
 #                         · Token cache distribuido (valida JWT una vez)
 # transferencia-service → gRPC + Kafka [transferencias-topic] (5003 / 9092)
-# postgres              → Base de datos (5432)
-# redis                 → Cache distribuido: idempotencia + token cache (6379)
+# postgres              → PRIMARIO con persistencia (PVC 2Gi), TZ Lima (5432)
+# postgres-replica      → RÉPLICA streaming (solo lectura), TZ Lima (5432)  [NUEVO]
+# redis                 → Cache: idempotencia + token cache (6379)
 # kafka-broker + zookeeper → Mensajería asíncrona
 # kafka-exporter        → Métricas de Kafka para Prometheus
 # prometheus            → Recolector de métricas
@@ -414,4 +474,6 @@ git push origin feature/nombre-descriptivo
 # · Auto-escalado horizontal               (HPA por CPU)
 # · Idempotencia                           (Redis, evita cargos duplicados)
 # · Cache de sesión / token distribuido    (Redis, coherente con HPA)
-# · Persistencia de dashboards             (PVC en Grafana)
+# · Persistencia de datos                  (PVC en PostgreSQL y Grafana)
+# · Alta disponibilidad de datos           (réplica PostgreSQL streaming)
+# · Zona horaria consistente               (America/Lima en todos los servicios)
