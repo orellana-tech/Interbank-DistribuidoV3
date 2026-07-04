@@ -330,6 +330,112 @@ sleep 40
 kubectl get pods -n interbank -l app=postgres-replica
 
 
+
+# ───────────────────────────────────────────────────────────────
+# ESCENARIO L: EXPORTERS Y DASHBOARD COMPLETO v3  [NUEVO]
+# ───────────────────────────────────────────────────────────────
+# Dos exporters adicionales alimentan a Prometheus (6 targets en total):
+#   postgres-exporter   → métricas de BD y replicación (puerto 9187)
+#   kube-state-metrics  → réplicas, HPA y estado de pods (puerto 8080)
+# Dashboard "Interbank — Dashboard Completo v3" (uid interbank-v3):
+#   6 secciones: Estado general, Tráfico HTTP (solo negocio), Escalabilidad
+#   HPA, Recursos JVM, PostgreSQL + Replicación, Kafka.
+#   · Los paneles de tráfico EXCLUYEN el auto-monitoreo (/actuator/*)
+#   · Contadores de peticiones REALES en el rango de tiempo visible
+#   · Panel de errores muestra 0 explícito (no "No data")
+#   · Refresh recomendado: 30s (10s satura Grafana en esta VM)
+
+# Verificar los 6 targets de Prometheus (todos deben estar "up")
+pkill -f "port-forward.*prometheus" 2>/dev/null
+kubectl port-forward -n interbank service/prometheus 9096:9090 > /dev/null 2>&1 &
+sleep 8
+curl -s http://localhost:9096/api/v1/targets | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for t in sorted(data['data']['activeTargets'], key=lambda x: x['labels']['job']):
+    print(t['labels']['job'], '->', t['health'])
+"
+
+# Verificar los exporters
+kubectl get pods -n interbank -l 'app in (postgres-exporter,kube-state-metrics)'
+
+# Reinstalar el dashboard (si hiciera falta): Grafana → Dashboards → Import
+#   → Upload k8s/interbank-dashboard-v3.json → Import (Overwrite)
+
+
+# ───────────────────────────────────────────────────────────────
+# ESCENARIO M: PRUEBA DE ESTRÉS PARALELO (TPS reales)  [NUEVO]
+# ───────────────────────────────────────────────────────────────
+# El stress-test.sh clásico es SECUENCIAL (cada curl espera al anterior):
+# máximo ~5 req/s. Para medir TPS reales usa el script PARALELO, que
+# alterna PAGOS y TRANSFERENCIAS y reporta el TPS al final.
+# Incluye "freno": nice -n 15 (cede CPU a los servicios) + pausa configurable.
+#
+# Uso: ./stress-test-paralelo.sh [WORKERS] [PETICIONES_POR_WORKER] [PAUSA_MS]
+
+# Prueba suave (recomendada para empezar): ~18 TPS, no congela la VM
+~/Interbank-DistribuidoV3/stress-test-paralelo.sh 8 150 50
+
+# Prueba media (si la suave respondió bien): ~30 TPS
+~/Interbank-DistribuidoV3/stress-test-paralelo.sh 12 200 30
+
+# ⚠️ NUNCA lanzar directo 30 workers sin pausa: congela la VM (3 CPUs
+#    compartidos entre generador de carga y servicios). Escalar GRADUAL.
+#    Si el load average (uptime) pasa de ~15, detener con Ctrl+C.
+# Resultado de referencia en esta VM: 18.4 TPS sostenidos (8x150, pausa 50ms),
+# lag de réplica < 1KB durante la carga, 0 errores HTTP.
+
+
+# ───────────────────────────────────────────────────────────────
+# ESCENARIO N: LIMPIAR BASE DE DATOS Y REDIS  [NUEVO]
+# ───────────────────────────────────────────────────────────────
+# Tras pruebas de estrés la tabla pagos acumula miles de registros.
+# TRUNCATE vacía la tabla, reinicia los IDs y SE REPLICA SOLO a la réplica.
+
+# 1. Ver cuántos registros hay
+kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -c "SELECT COUNT(*) FROM pagos;"
+
+# 2. Vaciar la tabla (reinicia id a 1; el borrado viaja a la réplica)
+kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -c "TRUNCATE TABLE pagos RESTART IDENTITY;"
+
+# 3. Verificar que primario Y réplica quedaron en 0
+kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -t -c "SELECT COUNT(*) FROM pagos;"
+kubectl exec -n interbank deployment/postgres-replica -- psql -U equipo_dev -d interbank_dev -t -c "SELECT COUNT(*) FROM pagos;"
+
+# 4. Limpiar Redis (claves de idempotencia y tokens; se regeneran solas)
+kubectl exec -n interbank deployment/redis -- redis-cli FLUSHALL
+
+# NOTA: una BD vacía pesa ~7.5MB igual (catálogo interno de PostgreSQL).
+#       Es el peso base del motor, no acumulación de datos.
+
+
+# ───────────────────────────────────────────────────────────────
+# ESCENARIO O: LIMPIEZA DE TEMPORALES (Kubernetes y Docker)  [NUEVO]
+# ───────────────────────────────────────────────────────────────
+# Qué se limpia SOLO (automático):
+#   · ReplicaSets viejos → revisionHistoryLimit: 2 (ya configurado)
+#   · Imágenes sin usar en K3s → GC del kubelet si disco > 85%
+#   · Logs de contenedores → rotación automática de K3s
+#   · Claves Redis → expiran por TTL
+# Qué se limpia MANUAL (ejecutar cuando se acumule):
+
+# ReplicaSets con 0 pods (historial de despliegues)
+kubectl delete replicaset -n interbank $(kubectl get replicaset -n interbank -o jsonpath='{range .items[?(@.spec.replicas==0)]}{.metadata.name} {end}')
+
+# Imágenes huérfanas en K3s
+sudo k3s crictl rmi --prune
+
+# Imágenes Docker huérfanas y cache de builds (recupera varios GB)
+docker image prune -f
+docker builder prune -f
+
+# Volúmenes Docker sin uso (datos viejos de la era Docker Compose)
+docker volume prune -a -f
+
+# Verificar espacio recuperado
+docker system df
+df -h /
+
 # ───────────────────────────────────────────────────────────────
 # ACCESO A LOS DASHBOARDS DE MONITOREO
 # ───────────────────────────────────────────────────────────────
@@ -427,7 +533,14 @@ git push origin feature/nombre-descriptivo
 # REGLA 20: Los datos de PostgreSQL persisten (PVC): NO se borran al reiniciar  [NUEVO]
 # REGLA 21: Solo el flujo gRPC (transferencias) guarda en BD; HTTP /pagos solo Kafka  [NUEVO]
 # REGLA 22: La réplica es SOLO LECTURA: no escribas directamente en ella  [NUEVO]
-# REGLA 23: Fechas en hora de Lima (TZ en postgres, pagos y transferencia)  [NUEVO]
+# REGLA 23: Fechas en hora de Lima (TZ en postgres, pagos y transferencia)
+# REGLA 24: Dashboard v3 con refresh 30s (10s con 33+ paneles satura Grafana)  [NUEVO]
+# REGLA 25: Grafana con 768Mi de límite (512Mi causaba OOMKilled / exit 137)  [NUEVO]
+# REGLA 26: Estrés paralelo GRADUAL: empezar 8x150x50; nunca 30 workers directo  [NUEVO]
+# REGLA 27: TRUNCATE en el primario se replica solo (también los borrados)  [NUEVO]
+# REGLA 28: Los paneles de tráfico del dashboard v3 excluyen /actuator/*  [NUEVO]
+# REGLA 29: Crear SIEMPRE una rama nueva en git para cada cambio/feature  [NUEVO]
+# REGLA 30: El límite de TPS lo pone la VM (3 CPUs), no la arquitectura  [NUEVO]
 #
 #
 # ═══════════════════════════════════════════════════════════════
@@ -453,9 +566,11 @@ git push origin feature/nombre-descriptivo
 # postgres-replica      → RÉPLICA streaming (solo lectura), TZ Lima (5432)  [NUEVO]
 # redis                 → Cache: idempotencia + token cache (6379)
 # kafka-broker + zookeeper → Mensajería asíncrona
-# kafka-exporter        → Métricas de Kafka para Prometheus
-# prometheus            → Recolector de métricas
-# grafana               → Dashboards (con persistencia PVC)
+# kafka-exporter        → Métricas de Kafka para Prometheus (9308)
+# postgres-exporter     → Métricas de BD y replicación (9187)  [NUEVO]
+# kube-state-metrics    → Métricas de réplicas/HPA/pods (8080)  [NUEVO]
+# prometheus            → Recolector de métricas (6 targets)
+# grafana               → Dashboard Completo v3 (768Mi, PVC, refresh 30s)
 # traefik (K3s)         → Ingress Controller (puerto 80)
 # HPA                   → Auto-escalado de auth, pagos y transferencia
 #
@@ -469,7 +584,8 @@ git push origin feature/nombre-descriptivo
 # · Autenticación centralizada             (JWT HS384)
 # · Orquestación de contenedores           (Kubernetes K3s)
 # · Enrutamiento / Ingress                 (Traefik puerto 80)
-# · Observabilidad                         (Prometheus + Grafana + kafka-exporter)
+# · Observabilidad completa                (Prometheus + Grafana + 3 exporters)
+# · Pruebas de carga con medición de TPS   (stress paralelo con control de recursos)
 # · Eliminación de cold start              (startupProbe + warm-up postStart)
 # · Auto-escalado horizontal               (HPA por CPU)
 # · Idempotencia                           (Redis, evita cargos duplicados)

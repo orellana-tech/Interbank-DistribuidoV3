@@ -30,3 +30,11 @@ data:
         scrape_timeout: 25s
         static_configs:
           - targets: ['kafka-exporter:9308']
+
+      - job_name: 'postgres'
+        static_configs:
+          - targets: ['postgres-exporter:9187']
+
+      - job_name: 'kube-state-metrics'
+        static_configs:
+          - targets: ['kube-state-metrics:8080']
