@@ -145,8 +145,8 @@ time curl -s -X POST http://localhost/api/transferir \
 # Con 6GB RAM / 3 CPUs: ITERACIONES=500, ESPERA=0.3 es seguro.
 # Evita valores extremos (10000 a 0.1s) que saturan la VM.
 
-nano ~/Interbank-DistribuidoV3/stress-test.sh
-~/Interbank-DistribuidoV3/stress-test.sh
+nano ~/Interbank-DistribuidoV3/stress-tests/stress-test.sh
+~/Interbank-DistribuidoV3/stress-tests/stress-test.sh
 
 
 # ───────────────────────────────────────────────────────────────
@@ -360,7 +360,7 @@ for t in sorted(data['data']['activeTargets'], key=lambda x: x['labels']['job'])
 kubectl get pods -n interbank -l 'app in (postgres-exporter,kube-state-metrics)'
 
 # Reinstalar el dashboard (si hiciera falta): Grafana → Dashboards → Import
-#   → Upload k8s/interbank-dashboard-v3.json → Import (Overwrite)
+#   → Upload dashboards/interbank-dashboard-v3.json → Import (Overwrite)
 
 
 # ───────────────────────────────────────────────────────────────
@@ -374,10 +374,10 @@ kubectl get pods -n interbank -l 'app in (postgres-exporter,kube-state-metrics)'
 # Uso: ./stress-test-paralelo.sh [WORKERS] [PETICIONES_POR_WORKER] [PAUSA_MS]
 
 # Prueba suave (recomendada para empezar): ~18 TPS, no congela la VM
-~/Interbank-DistribuidoV3/stress-test-paralelo.sh 8 150 50
+~/Interbank-DistribuidoV3/stress-tests/stress-test-paralelo.sh 8 150 50
 
 # Prueba media (si la suave respondió bien): ~30 TPS
-~/Interbank-DistribuidoV3/stress-test-paralelo.sh 12 200 30
+~/Interbank-DistribuidoV3/stress-tests/stress-test-paralelo.sh 12 200 30
 
 # ⚠️ NUNCA lanzar directo 30 workers sin pausa: congela la VM (3 CPUs
 #    compartidos entre generador de carga y servicios). Escalar GRADUAL.
@@ -392,15 +392,16 @@ kubectl get pods -n interbank -l 'app in (postgres-exporter,kube-state-metrics)'
 # Tras pruebas de estrés la tabla pagos acumula miles de registros.
 # TRUNCATE vacía la tabla, reinicia los IDs y SE REPLICA SOLO a la réplica.
 
-# 1. Ver cuántos registros hay
-kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -c "SELECT COUNT(*) FROM pagos;"
+# 1. Ver cuántos registros hay en AMBAS tablas
+kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -c "SELECT 'pagos' AS tabla, COUNT(*) FROM pagos UNION ALL SELECT 'transferencias', COUNT(*) FROM transferencias;"
 
-# 2. Vaciar la tabla (reinicia id a 1; el borrado viaja a la réplica)
+# 2. Vaciar AMBAS tablas (reinicia id a 1; el borrado viaja a la réplica)
 kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -c "TRUNCATE TABLE pagos RESTART IDENTITY;"
+kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -c "TRUNCATE TABLE transferencias RESTART IDENTITY;"
 
 # 3. Verificar que primario Y réplica quedaron en 0
-kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -t -c "SELECT COUNT(*) FROM pagos;"
-kubectl exec -n interbank deployment/postgres-replica -- psql -U equipo_dev -d interbank_dev -t -c "SELECT COUNT(*) FROM pagos;"
+kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -c "SELECT (SELECT COUNT(*) FROM pagos) AS pagos, (SELECT COUNT(*) FROM transferencias) AS transferencias;"
+kubectl exec -n interbank deployment/postgres-replica -- psql -U equipo_dev -d interbank_dev -c "SELECT (SELECT COUNT(*) FROM pagos) AS pagos, (SELECT COUNT(*) FROM transferencias) AS transferencias;"
 
 # 4. Limpiar Redis (claves de idempotencia y tokens; se regeneran solas)
 kubectl exec -n interbank deployment/redis -- redis-cli FLUSHALL
@@ -435,6 +436,35 @@ docker volume prune -a -f
 # Verificar espacio recuperado
 docker system df
 df -h /
+
+
+# ───────────────────────────────────────────────────────────────
+# ESCENARIO P: CONSULTAR LAS DOS TABLAS SEPARADAS  [NUEVO]
+# ───────────────────────────────────────────────────────────────
+# Cada endpoint guarda en su propia tabla, sin mezclas:
+#   POST /pagos/procesar   → tabla pagos          (endpoint HTTP directo)
+#   POST /api/transferir   → tabla transferencias (con cuenta_destino y transaction_id)
+# El método gRPC processPayment ya NO guarda: delega en el llamador.
+
+# ── Ver los últimos pagos HTTP ──
+kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -c "SELECT * FROM pagos ORDER BY id DESC LIMIT 10;"
+
+# ── Ver las últimas transferencias ──
+kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -c "SELECT * FROM transferencias ORDER BY id DESC LIMIT 10;"
+
+# ── Comparar totales entre primario y réplica (streaming activo) ──
+echo "─── PRIMARIO ───"
+kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -c "SELECT 'pagos' AS tabla, COUNT(*) FROM pagos UNION ALL SELECT 'transferencias', COUNT(*) FROM transferencias;"
+echo "─── RÉPLICA ───"
+kubectl exec -n interbank deployment/postgres-replica -- psql -U equipo_dev -d interbank_dev -c "SELECT 'pagos' AS tabla, COUNT(*) FROM pagos UNION ALL SELECT 'transferencias', COUNT(*) FROM transferencias;"
+
+# ── Suma total de dinero por tabla ──
+kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -c "SELECT 'pagos' AS tabla, SUM(monto) AS total FROM pagos UNION ALL SELECT 'transferencias', SUM(monto) FROM transferencias;"
+
+# ── Verificar la estructura de ambas tablas (columnas) ──
+kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -c "\d pagos"
+kubectl exec -n interbank deployment/postgres -- psql -U equipo_dev -d interbank_dev -c "\d transferencias"
+
 
 # ───────────────────────────────────────────────────────────────
 # ACCESO A LOS DASHBOARDS DE MONITOREO
@@ -540,7 +570,14 @@ git push origin feature/nombre-descriptivo
 # REGLA 27: TRUNCATE en el primario se replica solo (también los borrados)  [NUEVO]
 # REGLA 28: Los paneles de tráfico del dashboard v3 excluyen /actuator/*  [NUEVO]
 # REGLA 29: Crear SIEMPRE una rama nueva en git para cada cambio/feature  [NUEVO]
-# REGLA 30: El límite de TPS lo pone la VM (3 CPUs), no la arquitectura  [NUEVO]
+# REGLA 30: El límite de TPS lo pone la VM (3 CPUs), no la arquitectura
+# REGLA 31: Endpoint /pagos/procesar → guarda en tabla pagos  [NUEVO]
+# REGLA 32: Endpoint /api/transferir → guarda en tabla transferencias  [NUEVO]
+# REGLA 33: El gRPC processPayment ya NO persiste (solo procesa y responde)  [NUEVO]
+# REGLA 34: Scripts de estrés viven en stress-tests/, no en la raíz  [NUEVO]
+# REGLA 35: El dashboard de Grafana vive en dashboards/interbank-dashboard-v3.json  [NUEVO]
+# REGLA 36: La instalación desde cero está en docs/README-Instalacion.md  [NUEVO]
+# REGLA 37: Los recursos de todos los servicios están fijados en los YAML (fuente de verdad)  [NUEVO]
 #
 #
 # ═══════════════════════════════════════════════════════════════
@@ -558,10 +595,13 @@ git push origin feature/nombre-descriptivo
 # ESTADO ACTUAL DE LA ARQUITECTURA
 # ═══════════════════════════════════════════════════════════════
 # auth-service          → JWT + gRPC (5001 / 9090)
-# pagos-service         → gRPC + Kafka [transacciones-topic] + Redis (5002 / 9091)
+# pagos-service         → gRPC + Kafka [transacciones-topic] + Redis + BD tabla "pagos" (5002 / 9091)
 #                         · Idempotencia (evita pagos duplicados)
 #                         · Token cache distribuido (valida JWT una vez)
-# transferencia-service → gRPC + Kafka [transferencias-topic] (5003 / 9092)
+#                         · Endpoint HTTP /pagos/procesar guarda en tabla pagos
+# transferencia-service → gRPC + Kafka [transferencias-topic] + BD tabla "transferencias" (5003 / 9092)
+#                         · Guarda con cuenta_destino y transaction_id
+#                         · El gRPC de pagos ya NO persiste (delega en transferencia-service)
 # postgres              → PRIMARIO con persistencia (PVC 2Gi), TZ Lima (5432)
 # postgres-replica      → RÉPLICA streaming (solo lectura), TZ Lima (5432)  [NUEVO]
 # redis                 → Cache: idempotencia + token cache (6379)
