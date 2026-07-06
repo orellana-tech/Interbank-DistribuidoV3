@@ -25,6 +25,12 @@ spec:
               value: static://auth-service:9090
             - name: GRPC_CLIENT_PAGOS_SERVICE_ADDRESS
               value: static://pagos-service:9091
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://postgres:5432/interbank_dev
+            - name: SPRING_DATASOURCE_USERNAME
+              value: equipo_dev
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: secreta_dev
             - name: TZ
               value: America/Lima
           resources:

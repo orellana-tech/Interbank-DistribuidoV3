@@ -24,6 +24,20 @@ management:
       enabled: true
 
 spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://postgres:5432/interbank_dev}
+    username: ${SPRING_DATASOURCE_USERNAME:equipo_dev}
+    password: ${SPRING_DATASOURCE_PASSWORD:secreta_dev}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          time_zone: America/Lima
   kafka:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:kafka-broker:9092}
     producer:

@@ -2,6 +2,8 @@ package com.interbank.transferencias.service;
 
 import com.interbank.transferencias.util.JwtUtil;
 import com.interbank.transferencias.kafka.TransferenciaProducer;
+import com.interbank.transferencias.entity.Transferencia;
+import com.interbank.transferencias.repository.TransferenciaRepository;
 import net.devh.boot.grpc.client.inject.GrpcClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -18,9 +20,12 @@ public class TransferenciaOrquestadorService {
     @Autowired
     private JwtUtil jwtUtil;
 
-    // Inyectamos el productor de Kafka
     @Autowired
     private TransferenciaProducer transferenciaProducer;
+
+    // Inyectamos el repositorio para guardar en BD
+    @Autowired
+    private TransferenciaRepository transferenciaRepository;
 
     public String ejecutarTransferencia(String token, double monto, String cuentaDestino) {
 
@@ -46,7 +51,17 @@ public class TransferenciaOrquestadorService {
 
         String transactionId = pagosRes.getTransactionId();
 
-        // ── NUEVO: Enviar evento a Kafka tras transferencia exitosa ──
+        // ── NUEVO: Guardar transferencia en la BD ──
+        Transferencia transferencia = new Transferencia();
+        transferencia.setUserId(userId);
+        transferencia.setMonto(monto);
+        transferencia.setCuentaDestino(cuentaDestino);
+        transferencia.setTransactionId(transactionId);
+        transferencia.setEstado("APROBADO");
+        transferenciaRepository.save(transferencia);
+        System.out.println("💾 [BD] Transferencia guardada con ID interno: " + transferencia.getId());
+
+        // Enviar evento a Kafka tras transferencia exitosa
         String evento = String.format(
             "{\"transactionId\":\"%s\",\"userId\":\"%s\",\"monto\":%.2f,\"cuentaDestino\":\"%s\"}",
             transactionId, userId, monto, cuentaDestino
