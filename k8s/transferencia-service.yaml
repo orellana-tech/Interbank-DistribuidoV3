@@ -29,11 +29,11 @@ spec:
               value: America/Lima
           resources:
             requests:
-              memory: "256Mi"
-              cpu: "200m"
+              memory: "224Mi"
+              cpu: "100m"
             limits:
-              memory: "512Mi"
-              cpu: "500m"
+              memory: "448Mi"
+              cpu: "400m"
           startupProbe:
             httpGet:
               path: /actuator/health
